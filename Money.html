@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>多页面记账本</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <style>
+    body {
+        font-family: Arial, sans-serif;
+    }
+    table {
+        width: 100%;
+        margin-top: 20px;
+        border-collapse: collapse;
+    }
+    th, td {
+        border: 1px solid #dddddd;
+        text-align: left;
+        padding: 8px;
+    }
+    th {
+        background-color: #f2f2f2;
+    }
+    .hidden {
+        display: none;
+    }
+    .modal, .confirm-modal {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 20px;
+        background-color: white;
+        border: 1px solid #ccc;
+        z-index: 1002;
+        display: none;
+    }
+    .overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.5);
+        z-index: 1001;
+        display: none;
+    }
+    .navigation {
+        margin-top: 20px;
+        margin-bottom: 20px;
+    }
+    .navigation button {
+        padding: 10px;
+        margin-right: 5px;
+        font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+<!-- 在 </head> 之前添加 Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/8.2.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.2.0/firebase-database.js"></script>
+<script>
+  var firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    databaseURL: "https://YOUR_PROJECT_ID.firebaseio.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+  var database = firebase.database();
+
+  function fetchRecords() {
+    firebase.database().ref('records').on('value', function(snapshot) {
+      const records = snapshot.val();
+      updateTable(Object.values(records || {}));
+    });
+  }
+
+  function addRecord() {
+    const newRecord = {
+      timestamp: document.getElementById('timestamp').value,
+      name: document.getElementById('name').value,
+      detail: document.getElementById('detail').value,
+      amount: parseFloat(document.getElementById('amount').value),
+      account: document.getElementById('account').value,
+      settled: document.getElementById('settled').value === 'true'
+    };
+
+    // 写入数据到 Firebase
+    firebase.database().ref('records').push(newRecord);
+  }
+
+  function updateTable(records) {
+    const list = document.getElementById('recordsList');
+    list.innerHTML = ''; // 清空现有的列表
+    records.forEach((record, index) => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${record.timestamp}</td>
+        <td>${record.name}</td>
+        <td>${record.detail}</td>
+        <td>${record.amount.toFixed(2)}</td>
+        <td>${record.account}</td>
+        <td>${record.settled ? '是' : '否'}</td>
+        <td class="action-buttons">
+          <button onclick="editRecord('${index}')">修改</button>
+          <button onclick="deleteRecord('${index}')">删除</button>
+        </td>`;
+      list.appendChild(row);
+    });
+  }
+
+  function deleteRecord(key) {
+    firebase.database().ref('records/' + key).remove();
+  }
+
+  function editRecord(key) {
+    const record = records[key];
+    document.getElementById('editName').value = record.name;
+    document.getElementById('editDetail').value = record.detail;
+    document.getElementById('editAmount').value = record.amount;
+    document.getElementById('editAccount').value = record.account;
+    document.getElementById('editTimestamp').value = record.timestamp;
+    document.getElementById('editSettled').value = record.settled ? 'true' : 'false';
+    document.getElementById('editModal').style.display = 'block';
+    document.getElementById('overlay').style.display = 'block';
+    currentEditId = key; // Set the currentEditId
+  }
+
+  function saveEdit() {
+    const record = {
+      name: document.getElementById('editName').value,
+      detail: document.getElementById('editDetail').value,
+      amount: parseFloat(document.getElementById('editAmount').value),
+      account: document.getElementById('editAccount').value,
+      timestamp: document.getElementById('editTimestamp').value,
+      settled: document.getElementById('editSettled').value === 'true'
+    };
+    firebase.database().ref('records/' + currentEditId).set(record);
+    closeEditModal();
+  }
+
+  function closeEditModal() {
+    document.getElementById('editModal').style.display = 'none';
+    document.getElementById('overlay').style.display = 'none';
+  }
+</script>
+<div class="navigation">
+  <button onclick="showPage('summary')">总金额页面</button>
+  <button onclick="showPage('details')">详细记录页面</button>
+</div>
+
+<div id="summaryPage" class="page">
+  <h1>总金额</h1>
+  <table>
+    <thead>
+    <tr>
+      <th>时间</th>
+      <th>姓名</th>
+      <th>交易详情</th>
+      <th>总金额（元）</th>
+      <th>转账账户</th>
+      <th>是否结清</th>
+      <th>操作</th>
+    </tr>
+    </thead>
+    <tbody id="summaryList">
+    </tbody>
+  </table>
+</div>
+
+<div id="detailsPage" class="page hidden">
+  <h1>详细记录</h1>
+  <label for="timestamp">日期：</label>
+  <input type="text" id="timestamp" class="flatpickr" placeholder="选择日期">
+  <label for="name">姓名：</label>
+  <input type="text" id="name" placeholder="请输入姓名">
+  <label for="detail">交易详情：</label>
+  <input type="text" id="detail" placeholder="例如：午餐">
+  <label for="amount">金额（元）：</label>
+  <input type="number" id="amount" placeholder="例如：50">
+  <label for="account">转账账户：</label>
+  <input type="text" id="account" placeholder="例如：银行账户">
+  <label for="settled">是否结清：</label>
+  <select id="settled">
+    <option value="true">是</option>
+    <option value="false">否</option>
+  </select>
+  <button onclick="addRecord()">添加记录</button>
+  <br><br>
+  <label for="searchName">检索姓名：</label>
+  <input type="text" id="searchName" placeholder="搜索姓名">
+  <button onclick="searchRecords()">检索</button>
+
+  <table>
+    <thead>
+    <tr>
+      <th>时间</th>
+      <th>姓名</th>
+      <th>交易详情</th>
+      <th>金额（元）</th>
+      <th>转账账户</th>
+      <th>是否结清</th>
+      <th>操作</th>
+    </tr>
+    </thead>
+    <tbody id="recordsList">
+    </tbody>
+  </table>
+</div>
+
+<!-- Modal for Edit -->
+<div class="modal" id="editModal">
+  <h3>修改记录</h3>
+  <label for="editTimestamp">日期：</label>
+  <input type="text" id="editTimestamp" class="flatpickr" data-enable-time="false">
+  <label for="editName">姓名：</label>
+  <input type="text" id="editName">
+  <label for="editDetail">交易详情：</label>
+  <input type of="text" id="editDetail">
+  <label for="editAmount">金额：</label>
+  <input type="number" id="editAmount">
+  <label for="editAccount">转账账户：</label>
+  <input type="text" id="editAccount">
+  <label for="editSettled">是否结清：</label>
+  <select id="editSettled">
+    <option value="true">是</option>
+    <option value="false">否</option>
+  </select>
+  <button onclick="saveEdit()">保存修改</button>
+  <button onclick="closeEditModal()">取消</button>
+</div>
+<div class="overlay" id="overlay"></div>
+
+<!-- Confirm Modal for Delete -->
+<div class="confirm-modal" id="confirmModal">
+  <p>确定要删除这条记录吗？</p>
+  <button onclick="confirmDelete()">确认</button>
+  <button onclick="closeConfirmModal()">取消</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+  function showPage(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+    document.getElementById(page + 'Page').classList.remove('hidden');
+    if (page === 'summary') {
+      updateSummaryTable();
+    }
+  }
+
+  function updateSummaryTable() {
+    const summary = {};
+    records.forEach(record => {
+      if (!summary[record.name]) {
+        summary[record.name] = {...record, amount: 0};
+      }
+      summary[record.name].amount += record.amount;
+    });
+
+    const summaryList = document.getElementById('summaryList');
+    summaryList.innerHTML = '';
+    Object.values(summary).forEach(record => {
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${record.timestamp}</td><td>${record.name}</td><td>${record.detail}</td>` +
+        `<td>${record.amount.toFixed(2)}</td><td>${record.account}</td>` +
+        `<td>${record.settled ? '是' : '否'}</td><td>无操作</td>`;
+      summaryList.appendChild(row);
+    });
+  }
+
+  window.onload = () => {
+    fetchRecords();
+  };
+</script>
+</body>
+</html>
+
+
+
